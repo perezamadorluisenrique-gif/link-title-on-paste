@@ -1,5 +1,5 @@
 import { Notice, Plugin, PluginSettingTab, Setting, requestUrl } from 'obsidian';
-import type { App, Editor } from 'obsidian';
+import type { App, Editor, MarkdownFileInfo } from 'obsidian';
 
 import {
   asBareUrl,
@@ -8,6 +8,7 @@ import {
   findTargetInLine,
   isSkipped,
   isUselessTitle,
+  linkableCopies,
   locateUrl,
   markdownLink,
   parseSkipList,
@@ -35,7 +36,7 @@ export default class LinkTitleOnPastePlugin extends Plugin {
     this.settings = { ...DEFAULT_SETTINGS, ...data };
 
     this.registerEvent(
-      this.app.workspace.on('editor-paste', (evt, editor) => {
+      this.app.workspace.on('editor-paste', (evt, editor, info) => {
         if (evt.defaultPrevented || !this.settings.titleOnPaste) return;
         const url = asBareUrl(evt.clipboardData?.getData('text/plain') ?? '');
         if (!url || this.skipped(url)) return;
@@ -44,10 +45,11 @@ export default class LinkTitleOnPastePlugin extends Plugin {
         const offset = editor.posToOffset(editor.getCursor());
         if (!canLinkAt(editor.getValue(), offset)) return;
         evt.preventDefault();
+        const before = linkableCopies(editor.getValue(), url).length;
         // The bare URL goes in first, as Obsidian would paste it, so one undo
         // after the title arrives gives it back.
         editor.replaceSelection(url);
-        void this.titleUrlAt(editor, url, offset);
+        void this.titleUrlAt(editor, info, url, offset, before);
       }),
     );
 
@@ -55,14 +57,14 @@ export default class LinkTitleOnPastePlugin extends Plugin {
       id: 'paste-url-with-title',
       name: 'Paste URL with title',
       icon: 'clipboard-paste',
-      editorCallback: (editor) => void this.pasteFromClipboard(editor),
+      editorCallback: (editor, ctx) => void this.pasteFromClipboard(editor, ctx),
     });
 
     this.addCommand({
       id: 'fetch-title-for-link',
       name: 'Fetch title for the current link',
       icon: 'link',
-      editorCallback: (editor) => void this.titleUnderCursor(editor),
+      editorCallback: (editor, ctx) => void this.titleUnderCursor(editor, ctx),
     });
 
     this.addSettingTab(new LinkTitleSettingTab(this.app, this));
@@ -80,8 +82,11 @@ export default class LinkTitleOnPastePlugin extends Plugin {
   private async fetchTitle(url: string): Promise<string | null> {
     try {
       const request = requestUrl({ url, throw: false, headers: { Accept: 'text/html,application/xhtml+xml' } });
-      const timeout = new Promise<null>((resolve) => window.setTimeout(() => resolve(null), TIMEOUT_MS));
-      const res = await Promise.race([request, timeout]);
+      let timer = 0;
+      const timeout = new Promise<null>((resolve) => {
+        timer = window.setTimeout(() => resolve(null), TIMEOUT_MS);
+      });
+      const res = await Promise.race([request, timeout]).finally(() => window.clearTimeout(timer));
       if (!res || res.status >= 400) return null;
       const type = Object.entries(res.headers).find(([k]) => k.toLowerCase() === 'content-type')?.[1] ?? '';
       if (type && !/html|xml/i.test(type)) return null;
@@ -93,17 +98,19 @@ export default class LinkTitleOnPastePlugin extends Plugin {
   }
 
   /** Turns the bare URL that was just pasted at `offset` into a titled link, wherever it has moved to. */
-  private async titleUrlAt(editor: Editor, url: string, offset: number) {
+  private async titleUrlAt(editor: Editor, info: MarkdownFileInfo, url: string, offset: number, before: number) {
+    // The editor is reused when the tab opens another note, so remember which one this was.
+    const path = info.file?.path;
     const title = await this.fetchTitle(url);
-    if (!title) return;
-    const where = locateUrl(editor.getValue(), url, offset);
+    if (!title || info.file?.path !== path) return;
+    const where = locateUrl(editor.getValue(), url, offset, before);
     if (!where) return;
     editor.transaction({
       changes: [{ from: editor.offsetToPos(where.from), to: editor.offsetToPos(where.to), text: markdownLink(title, url) }],
     });
   }
 
-  private async pasteFromClipboard(editor: Editor) {
+  private async pasteFromClipboard(editor: Editor, info: MarkdownFileInfo) {
     let text = '';
     try {
       text = await navigator.clipboard.readText();
@@ -117,13 +124,15 @@ export default class LinkTitleOnPastePlugin extends Plugin {
       return;
     }
     const offset = editor.posToOffset(editor.getCursor('from'));
+    const before = linkableCopies(editor.getValue(), url).length;
     editor.replaceSelection(url);
     if (this.skipped(url)) return;
-    await this.titleUrlAt(editor, url, offset);
+    await this.titleUrlAt(editor, info, url, offset, before);
   }
 
-  private async titleUnderCursor(editor: Editor) {
+  private async titleUnderCursor(editor: Editor, info: MarkdownFileInfo) {
     const cursor = editor.getCursor();
+    const path = info.file?.path;
     const target = findTargetInLine(editor.getLine(cursor.line), cursor.ch);
     if (!target) {
       new Notice('No web address here.');
@@ -138,7 +147,8 @@ export default class LinkTitleOnPastePlugin extends Plugin {
       new Notice('Could not find a title for this page.');
       return;
     }
-    // The line may have changed while the page loaded; only edit if the same link is still there.
+    // The note or the line may have changed while the page loaded; only edit if the same link is still there.
+    if (info.file?.path !== path) return;
     const now = findTargetInLine(editor.getLine(cursor.line), target.from);
     if (!now || now.url !== target.url) return;
     editor.transaction({

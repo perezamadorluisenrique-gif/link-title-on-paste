@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 
 import {
   asBareUrl, canLinkAt, cleanTitle, decodeEntities, extractTitle, findTargetInLine, isPrivateHost,
-  isSkipped, isUselessTitle, linkDestination, locateUrl, markdownLink, parseSkipList,
+  isSkipped, isUselessTitle, linkableCopies, linkDestination, locateUrl, markdownLink, parseSkipList,
 } from '../src/logic.ts';
 
 test('asBareUrl accepts one URL and nothing else', () => {
@@ -90,10 +90,29 @@ test('findTargetInLine finds bare URLs and empty links', () => {
 
 test('locateUrl follows the URL when text was typed before it', () => {
   const url = 'https://e.com/a';
-  assert.deepEqual(locateUrl(`xx ${url}`, url, 0), { from: 3, to: 3 + url.length });
-  assert.deepEqual(locateUrl(`${url}`, url, 0), { from: 0, to: url.length });
-  assert.equal(locateUrl('gone', url, 0), null);
-  assert.equal(locateUrl(`[t](${url})`, url, 4), null);
-  assert.equal(locateUrl(`${url}/longer`, url, 0), null);
-  assert.deepEqual(locateUrl(`${url} ${url}`, url, 17), { from: 16, to: 31 });
+  assert.deepEqual(locateUrl(`xx ${url}`, url, 0, 0), { from: 3, to: 3 + url.length });
+  assert.deepEqual(locateUrl(`${url}`, url, 0, 0), { from: 0, to: url.length });
+  assert.equal(locateUrl('gone', url, 0, 0), null);
+  assert.equal(locateUrl(`[t](${url})`, url, 4, 0), null);
+  assert.equal(locateUrl(`${url}/longer`, url, 0, 0), null);
+  assert.deepEqual(locateUrl(`${url} ${url}`, url, 16, 1), { from: 16, to: 31 });
+});
+
+test('locateUrl gives up when the pasted URL is gone, instead of picking another copy', () => {
+  const url = 'https://e.com/a';
+  // Undone: only the copy that was already there remains.
+  assert.equal(locateUrl(`${url} and text`, url, 20, 1), null);
+  // The only other copy is in a code block.
+  const fenced = '```\n' + url + '\n```\nafter ';
+  assert.equal(locateUrl(fenced, url, fenced.length, 0), null);
+  // The URL at the hint was removed and one copy elsewhere remains.
+  assert.equal(locateUrl(`first ${url}\n\nlater`, url, 40, 1), null);
+  // Inline code is no target either.
+  assert.equal(locateUrl(`see \`${url}\``, url, 0, 0), null);
+});
+
+test('linkableCopies skips code, links and the properties block', () => {
+  const url = 'https://e.com/a';
+  const doc = `---\nsource: ${url}\n---\n${url}\n[x](${url})\n\`${url}\`\n`;
+  assert.deepEqual(linkableCopies(doc, url), [doc.indexOf(`\n${url}\n[x]`) + 1]);
 });

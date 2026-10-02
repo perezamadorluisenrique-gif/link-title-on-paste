@@ -43,6 +43,7 @@ No default hotkeys; assign your own in **Settings → Hotkeys**.
 
 - The title is the page's `<title>`, falling back to its `og:title` and `twitter:title`. HTML entities are decoded, whitespace is collapsed and brackets are escaped.
 - Pages that are not HTML (images, PDFs) and titles that only repeat the address are skipped.
+- Redirects are followed by Obsidian's request layer, so a public address that redirects to a private one is not stopped, and pages are read as UTF-8 whatever their declared charset.
 - If the title arrives within about half a second, Obsidian groups it with the paste into one undo step.
 
 ## Installation

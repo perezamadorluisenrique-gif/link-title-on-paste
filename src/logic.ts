@@ -135,7 +135,11 @@ export function canLinkAt(doc: string, offset: number): boolean {
   const before = doc.slice(0, offset);
   if (/^---\r?\n/.test(doc)) {
     const end = /\r?\n---[ \t]*(?:\r?\n|$)/.exec(doc.slice(3));
-    if (end && offset <= 3 + end.index + end[0].length) return false;
+    if (end) {
+      const closed = 3 + end.index + end[0].length;
+      // The start of the line after the closing `---` is already the body.
+      if (offset < closed || (offset === closed && !end[0].endsWith('\n'))) return false;
+    }
   }
   const fences = before.match(/^[ \t]*(```|~~~)/gm);
   if (fences && fences.length % 2 === 1) return false;
@@ -172,21 +176,35 @@ export function findTargetInLine(line: string, ch: number): LinkTarget | null {
   return null;
 }
 
-/**
- * Where `url` is now, after the user may have typed while the title loaded.
- * Looks at the original offset first, then at the nearest standalone copy.
- */
-export function locateUrl(doc: string, url: string, hint: number): { from: number; to: number } | null {
-  const standalone = (at: number): boolean => {
-    if (doc.slice(at, at + url.length) !== url) return false;
-    const prev = doc[at - 1] ?? '';
-    const next = doc[at + url.length] ?? '';
-    return prev !== '(' && prev !== '<' && prev !== '[' && !/[\w/%-]/.test(next);
-  };
-  if (standalone(hint)) return { from: hint, to: hint + url.length };
-  let best = -1;
+function standaloneAt(doc: string, url: string, at: number): boolean {
+  if (doc.slice(at, at + url.length) !== url) return false;
+  const prev = doc[at - 1] ?? '';
+  const next = doc[at + url.length] ?? '';
+  return prev !== '(' && prev !== '<' && prev !== '[' && !/[\w/%-]/.test(next);
+}
+
+/** Offsets of every bare copy of `url` in `doc` that is not inside code, a link or the properties. */
+export function linkableCopies(doc: string, url: string): number[] {
+  const found: number[] = [];
   for (let i = doc.indexOf(url); i !== -1; i = doc.indexOf(url, i + 1)) {
-    if (standalone(i) && (best === -1 || Math.abs(i - hint) < Math.abs(best - hint))) best = i;
+    if (standaloneAt(doc, url, i) && canLinkAt(doc, i)) found.push(i);
   }
-  return best === -1 ? null : { from: best, to: best + url.length };
+  return found;
+}
+
+/**
+ * Where the pasted `url` is now, after the user may have typed while the title
+ * loaded. `before` is how many linkable copies the note held before the paste.
+ * The copy at `hint` wins; otherwise the nearest copy, but only if the note
+ * holds exactly `before + 1` of them, so a pasted URL that was undone or edited
+ * away never sends the title to another copy elsewhere in the note.
+ */
+export function locateUrl(doc: string, url: string, hint: number, before: number): { from: number; to: number } | null {
+  const copies = linkableCopies(doc, url);
+  const at = copies.includes(hint) ? hint : copies.length === before + 1 ? nearest(copies, hint) : -1;
+  return at === -1 ? null : { from: at, to: at + url.length };
+}
+
+function nearest(offsets: number[], hint: number): number {
+  return offsets.reduce((best, o) => (best === -1 || Math.abs(o - hint) < Math.abs(best - hint) ? o : best), -1);
 }
