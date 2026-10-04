@@ -2,6 +2,8 @@
 
 Paste a web address and get a Markdown link with the page's title, `[Page title](https://…)`, without leaving the keyboard.
 
+![A list item holding a bare Wikipedia address that, a moment after pasting, becomes the link [Markdown - Wikipedia](https://en.wikipedia.org/wiki/Markdown)](https://raw.githubusercontent.com/perezamadorluisenrique-gif/link-title-on-paste/main/docs/paste-title.gif)
+
 The address goes in at once, exactly as Obsidian would paste it. A moment later the plugin reads the page's title and turns the address into a link. If the page has no usable title, or cannot be reached, the address stays as it was. One **Undo** after the link appears gives you the bare address back.
 
 ## Network use
