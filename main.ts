@@ -1,5 +1,5 @@
 import { Notice, Plugin, PluginSettingTab, Setting, requestUrl } from 'obsidian';
-import type { App, Editor, MarkdownFileInfo } from 'obsidian';
+import type { App, Editor, MarkdownFileInfo, SettingDefinitionItem } from 'obsidian';
 
 import {
   asBareUrl,
@@ -24,6 +24,18 @@ interface LinkTitleSettings {
 const DEFAULT_SETTINGS: LinkTitleSettings = {
   titleOnPaste: true,
   skipDomains: '',
+};
+
+/** Names and descriptions shared by the 1.13+ declarative tab and the older `display()`. */
+const TEXT = {
+  titleOnPaste: {
+    name: 'Fetch the title when pasting a web address',
+    desc: 'When you paste a lone address, the plugin requests that page to read its title. The address is sent to the site. Turn this off to use only the commands.',
+  },
+  skipDomains: {
+    name: 'Skipped domains',
+    desc: 'One domain per line. These sites and their subdomains are never requested. Local and private addresses are always skipped.',
+  },
 };
 
 const TIMEOUT_MS = 10_000;
@@ -171,33 +183,48 @@ class LinkTitleSettingTab extends PluginSettingTab {
     super(app, plugin);
   }
 
+  /**
+   * The settings, described rather than drawn. Obsidian 1.13 and later
+   * renders this itself and indexes it for the settings search. Older
+   * versions ignore it and call `display()`.
+   */
+  getSettingDefinitions(): SettingDefinitionItem[] {
+    return [
+      { ...TEXT.titleOnPaste, control: { type: 'toggle', key: 'titleOnPaste', defaultValue: DEFAULT_SETTINGS.titleOnPaste } },
+      {
+        ...TEXT.skipDomains,
+        control: { type: 'textarea', key: 'skipDomains', rows: 4, placeholder: 'example.com', defaultValue: DEFAULT_SETTINGS.skipDomains },
+      },
+    ];
+  }
+
+  getControlValue(key: string): unknown {
+    return (this.plugin.settings as unknown as Record<string, unknown>)[key];
+  }
+
+  async setControlValue(key: string, value: unknown): Promise<void> {
+    Object.assign(this.plugin.settings, { [key]: value });
+    await this.plugin.saveSettings();
+  }
+
+  /** The pre-1.13 rendering, from the same text. Obsidian skips it once `getSettingDefinitions()` returns anything. */
   display(): void {
     const { containerEl } = this;
     containerEl.empty();
 
     new Setting(containerEl)
-      .setName('Fetch the title when pasting a web address')
-      .setDesc(
-        'When you paste a lone address, the plugin requests that page to read its title. The address is sent to the site. Turn this off to use only the commands.',
-      )
-      .addToggle((t) =>
-        t.setValue(this.plugin.settings.titleOnPaste).onChange(async (v) => {
-          this.plugin.settings.titleOnPaste = v;
-          await this.plugin.saveSettings();
-        }),
-      );
+      .setName(TEXT.titleOnPaste.name)
+      .setDesc(TEXT.titleOnPaste.desc)
+      .addToggle((t) => t.setValue(this.plugin.settings.titleOnPaste).onChange((v) => this.setControlValue('titleOnPaste', v)));
 
     new Setting(containerEl)
-      .setName('Skipped domains')
-      .setDesc('One domain per line. These sites and their subdomains are never requested. Local and private addresses are always skipped.')
+      .setName(TEXT.skipDomains.name)
+      .setDesc(TEXT.skipDomains.desc)
       .addTextArea((t) =>
         t
           .setPlaceholder('example.com')
           .setValue(this.plugin.settings.skipDomains)
-          .onChange(async (v) => {
-            this.plugin.settings.skipDomains = v;
-            await this.plugin.saveSettings();
-          }),
+          .onChange((v) => this.setControlValue('skipDomains', v)),
       );
   }
 }

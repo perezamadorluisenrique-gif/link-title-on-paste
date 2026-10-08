@@ -1,7 +1,7 @@
 {
   "id": "link-title-on-paste",
   "name": "Link Title on Paste",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "minAppVersion": "1.1.1",
   "description": "Pastes a bare URL as a Markdown link with the page title, fetched in the background and undone in one step.",
   "author": "Siulved54",
