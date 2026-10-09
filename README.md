@@ -31,6 +31,16 @@ If you keep typing while the title loads, the link still lands in the right plac
 |---|---|
 | Paste URL with title | Pastes the address on the clipboard and adds its title. Handy on mobile, or when the automatic paste is off. |
 | Fetch title for the current link | Turns the bare address under the cursor, or an empty link `[](https://…)`, into a titled link. A link that already has text is never changed. |
+| Add titles to the links in this note or selection | Finds every bare web address in the selection, or in the whole note when nothing is selected, and turns each into a titled link. |
+
+### Adding titles to a whole note
+
+The pages are requested three at a time, with a notice showing progress ("Fetching titles: 4 of 12"). Nothing changes in the note until they are all done, and then every link is written at once, so one **Undo** puts all the bare addresses back. A final notice says how many titles were added and how many addresses were left as they were.
+
+- Addresses that are already links, inside `[[wikilinks]]`, code (inline or fenced), the properties block, HTML tags or comments are left alone, and so are your **Skipped domains** and private addresses. An address in `<angle brackets>` is treated as a bare one.
+- An address that has no usable title, or cannot be reached, stays as it was.
+- If you edit an address while the titles load, that one is skipped. Text you type elsewhere does not matter.
+- Run the command again while it is working to cancel it. Nothing is written.
 
 No default hotkeys; assign your own in **Settings → Hotkeys**.
 
