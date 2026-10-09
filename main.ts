@@ -13,6 +13,7 @@ import {
   markdownLink,
   parseSkipList,
 } from './src/logic.ts';
+import { findBareUrls, planRewrite, runPool, summary, uniqueUrls, withinRanges } from './src/bulk.ts';
 
 interface LinkTitleSettings {
   /** Fetch the title when a bare URL is pasted. The commands work either way. */
@@ -39,9 +40,12 @@ const TEXT = {
 };
 
 const TIMEOUT_MS = 10_000;
+const PARALLEL = 3;
 
 export default class LinkTitleOnPastePlugin extends Plugin {
   settings: LinkTitleSettings = { ...DEFAULT_SETTINGS };
+  /** The running "add titles" job; running the command again sets `cancelled`. */
+  private bulk: { cancelled: boolean } | null = null;
 
   async onload() {
     const data = (await this.loadData()) as Partial<LinkTitleSettings> | null;
@@ -77,6 +81,13 @@ export default class LinkTitleOnPastePlugin extends Plugin {
       name: 'Fetch title for the current link',
       icon: 'link',
       editorCallback: (editor, ctx) => void this.titleUnderCursor(editor, ctx),
+    });
+
+    this.addCommand({
+      id: 'add-titles-to-links',
+      name: 'Add titles to the links in this note or selection',
+      icon: 'link-2',
+      editorCallback: (editor, ctx) => void this.addTitlesToAll(editor, ctx),
     });
 
     this.addSettingTab(new LinkTitleSettingTab(this.app, this));
@@ -120,6 +131,74 @@ export default class LinkTitleOnPastePlugin extends Plugin {
     editor.transaction({
       changes: [{ from: editor.offsetToPos(where.from), to: editor.offsetToPos(where.to), text: markdownLink(title, url) }],
     });
+  }
+
+  onunload() {
+    if (this.bulk) this.bulk.cancelled = true;
+  }
+
+  /**
+   * Titles every bare address in the selection (or the whole note): at most
+   * three requests at a time, one progress notice, and every result written
+   * in a single transaction, so one undo restores the note.
+   */
+  private async addTitlesToAll(editor: Editor, info: MarkdownFileInfo) {
+    if (this.bulk) {
+      this.bulk.cancelled = true;
+      new Notice('Fetching titles cancelled.');
+      return;
+    }
+    const snapshot = editor.getValue();
+    const ranges = editor
+      .listSelections()
+      .map((s) => {
+        const a = editor.posToOffset(s.anchor);
+        const b = editor.posToOffset(s.head);
+        return { from: Math.min(a, b), to: Math.max(a, b) };
+      })
+      .filter((r) => r.to > r.from);
+    const skip = parseSkipList(this.settings.skipDomains);
+    const found = withinRanges(findBareUrls(snapshot), ranges);
+    const urls = uniqueUrls(found).filter((u) => !isSkipped(u, skip));
+    if (found.length === 0) {
+      new Notice('No bare web addresses found.');
+      return;
+    }
+    if (urls.length === 0) {
+      new Notice('All the addresses here are skipped or private.');
+      return;
+    }
+
+    const job = { cancelled: false };
+    this.bulk = job;
+    const path = info.file?.path;
+    const titles = new Map<string, string | null>();
+    const progress = new Notice(`Fetching titles: 0 of ${urls.length}`, 0);
+    try {
+      await runPool(
+        urls,
+        PARALLEL,
+        async (url) => {
+          titles.set(url, await this.fetchTitle(url));
+          progress.setMessage(`Fetching titles: ${titles.size} of ${urls.length}`);
+        },
+        () => job.cancelled,
+      );
+      if (job.cancelled) return;
+      // The editor is reused when the tab opens another note: write only if it is still this one.
+      if (info.file?.path !== path) return;
+      const plan = planRewrite(snapshot, editor.getValue(), found, titles);
+      if (plan.edits.length > 0) {
+        editor.transaction({
+          changes: plan.edits.map((e) => ({ from: editor.offsetToPos(e.from), to: editor.offsetToPos(e.to), text: e.text })),
+        });
+      }
+      // Skipped-domain addresses were never requested and stay as they were.
+      new Notice(summary(plan.added, plan.left));
+    } finally {
+      progress.hide();
+      if (this.bulk === job) this.bulk = null;
+    }
   }
 
   private async pasteFromClipboard(editor: Editor, info: MarkdownFileInfo) {

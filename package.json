@@ -1,6 +1,6 @@
 {
   "name": "link-title-on-paste",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "Link Title on Paste for Obsidian - Pastes a bare URL as a Markdown link with the page title, fetched in the background and undone in one step.",
   "main": "main.js",
   "scripts": {
