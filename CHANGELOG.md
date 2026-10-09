@@ -4,7 +4,7 @@ The release workflow uses the section named after the version being released
 as the release description, so every version needs one. `npm version <x.y.z>`
 renames the `Unreleased` heading below to that version.
 
-## Unreleased
+## 0.2.0
 
 - New command "Add titles to the links in this note or selection": turns every bare web address into a titled link, three requests at a time, in a single undo step.
 
