@@ -14,6 +14,7 @@ import {
   parseSkipList,
 } from './src/logic.ts';
 import { findBareUrls, planRewrite, runPool, summary, uniqueUrls, withinRanges } from './src/bulk.ts';
+import { moreDefinitions, renderMore } from './src/more-link.ts';
 
 interface LinkTitleSettings {
   /** Fetch the title when a bare URL is pasted. The commands work either way. */
@@ -274,6 +275,7 @@ class LinkTitleSettingTab extends PluginSettingTab {
         ...TEXT.skipDomains,
         control: { type: 'textarea', key: 'skipDomains', rows: 4, placeholder: 'example.com', defaultValue: DEFAULT_SETTINGS.skipDomains },
       },
+      ...(moreDefinitions() as SettingDefinitionItem[]),
     ];
   }
 
@@ -305,5 +307,6 @@ class LinkTitleSettingTab extends PluginSettingTab {
           .setValue(this.plugin.settings.skipDomains)
           .onChange((v) => this.setControlValue('skipDomains', v)),
       );
+    renderMore(this.containerEl, (el) => new Setting(el));
   }
 }
